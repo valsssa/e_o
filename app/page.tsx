@@ -6,26 +6,30 @@ import AuthForm from "@/components/auth/auth-form"
 import { cookies } from "next/headers"
 
 export default async function Home() {
-  // Check for authentication cookies directly
-  const cookieStore = cookies()
-  const hasAuthCookie = cookieStore.has("sb-access-token") || cookieStore.has("sb-refresh-token")
-
-  // Also check with Supabase
+  // Check for authentication using a dedicated function
+  const isAuthenticated = await isAuthenticatedServer()
+  
+  // Create the Supabase client
   const supabase = createServerSupabaseClient()
+  
+  // Get the session data
   const {
     data: { session },
   } = await supabase.auth.getSession()
-
-  // Double-check authentication with a dedicated function
-  const isAuthenticated = await isAuthenticatedServer()
-
-  // Log authentication state for debugging
-  console.log("[Home Page] Auth state:", {
-    hasSession: !!session,
-    hasAuthCookie,
-    isAuthenticated,
-    userId: session?.user?.id,
-  })
+  
+  // Check for authentication cookies directly - safely
+  const cookieStore = cookies()
+  const hasAuthCookie = cookieStore.has("sb-access-token") || cookieStore.has("sb-refresh-token")
+  
+  // For debugging in development only
+  if (process.env.NODE_ENV === "development") {
+    console.log("[Home Page] Auth state:", {
+      hasSession: !!session,
+      hasAuthCookie,
+      isAuthenticated,
+      userId: session?.user?.id,
+    })
+  }
 
   // If user is authenticated, show the oracle interface
   if (session || isAuthenticated) {

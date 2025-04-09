@@ -3,41 +3,66 @@ import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
 export async function middleware(req: NextRequest) {
-  const res = NextResponse.next()
-  const supabase = createMiddlewareClient({ req, res })
+  try {
+    // Create a response object that we'll manipulate
+    const res = NextResponse.next()
+    
+    // Create the Supabase middleware client
+    const supabase = createMiddlewareClient({ req, res })
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
+    // Get the session (this will verify the session cookie)
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
 
-  // Check if the request is for a protected route
-  const isProtectedRoute = req.nextUrl.pathname.startsWith("/profile") || req.nextUrl.pathname === "/"
+    // Define route patterns for different access controls
+    const isProtectedRoute = req.nextUrl.pathname.startsWith("/profile")
+    const isHomeRoute = req.nextUrl.pathname === "/"
+    const isAuthRoute = req.nextUrl.pathname.startsWith("/auth") && 
+                       !req.nextUrl.pathname.includes("/callback")
+    const isCallbackRoute = req.nextUrl.pathname.includes("/auth/callback")
 
-  // Auth routes that should redirect to home if already logged in
-  const isAuthRoute = req.nextUrl.pathname.startsWith("/auth") && !req.nextUrl.pathname.includes("/callback")
-
-  // If accessing a protected route without being logged in
-  if (isProtectedRoute && !session) {
-    // If the route is the home page, allow access to show the login form
-    if (req.nextUrl.pathname === "/") {
+    // Always allow access to callback routes (needed for auth flow)
+    if (isCallbackRoute) {
       return res
     }
 
-    // For other protected routes, redirect to login with the return URL
+    // For protected routes: redirect to login if not authenticated
+    if (isProtectedRoute && !session) {
+      const redirectUrl = req.nextUrl.clone()
+      redirectUrl.pathname = "/"
+      redirectUrl.searchParams.set("redirectTo", req.nextUrl.pathname)
+      return NextResponse.redirect(redirectUrl)
+    }
+
+    // For auth routes: redirect to home if already authenticated
+    if (isAuthRoute && session) {
+      const redirectUrl = req.nextUrl.clone()
+      redirectUrl.pathname = "/"
+      return NextResponse.redirect(redirectUrl)
+    }
+
+    // For home route: allow access (login page will be shown if not authenticated)
+    return res
+  } catch (error) {
+    console.error("[Middleware] Error in auth middleware:", error)
+    
+    // If middleware fails, default to allowing the request but redirect to home
+    // to avoid security issues where auth failures grant access
+    const isApiRoute = req.nextUrl.pathname.startsWith("/api/")
+    if (isApiRoute) {
+      return new Response(JSON.stringify({ error: "Authentication error" }), {
+        status: 401,
+        headers: {
+          "Content-Type": "application/json"
+        }
+      })
+    }
+    
     const redirectUrl = req.nextUrl.clone()
     redirectUrl.pathname = "/"
-    redirectUrl.searchParams.set("redirectTo", req.nextUrl.pathname)
     return NextResponse.redirect(redirectUrl)
   }
-
-  // If accessing auth routes while logged in, redirect to home
-  if (isAuthRoute && session) {
-    const redirectUrl = req.nextUrl.clone()
-    redirectUrl.pathname = "/"
-    return NextResponse.redirect(redirectUrl)
-  }
-
-  return res
 }
 
 export const config = {
@@ -48,8 +73,7 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - public folder
-     * - api routes that don't require authentication
      */
-    "/((?!_next/static|_next/image|favicon.ico|public|api/public).*)",
+    "/((?!_next/static|_next/image|favicon.ico|public).*)",
   ],
 }

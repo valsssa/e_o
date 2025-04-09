@@ -1,14 +1,9 @@
 import { createBrowserClient } from "@supabase/ssr"
 import type { SupabaseClient } from "@supabase/supabase-js"
-import { incrementClientCounter, initializeClientCounter } from "./global-counter"
-
-// Initialize the counter
-initializeClientCounter()
 
 // Global variables to track client state
 let supabaseClient: SupabaseClient | null = null
-let clientInitialization: Promise<SupabaseClient> | null = null
-let initializationCount = 0
+let clientInitializing: Promise<SupabaseClient> | null = null
 
 /**
  * Get the Supabase client for browser environments
@@ -21,16 +16,17 @@ export function getSupabaseClient(): Promise<SupabaseClient> {
   }
 
   // If initialization is in progress, return the existing promise
-  if (clientInitialization) {
-    return clientInitialization
+  if (clientInitializing) {
+    return clientInitializing
   }
 
   // Create a new initialization promise
-  initializationCount++
-  console.log(`[Supabase Client] Creating new client (attempt #${initializationCount})`)
-  incrementClientCounter()
+  const isDevelopment = process.env.NODE_ENV === "development"
+  if (isDevelopment) {
+    console.log("[Supabase Client] Creating new client")
+  }
 
-  clientInitialization = new Promise((resolve) => {
+  clientInitializing = new Promise((resolve) => {
     const client = createBrowserClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -57,57 +53,36 @@ export function getSupabaseClient(): Promise<SupabaseClient> {
           persistSession: true,
           detectSessionInUrl: true,
         },
+        cookieOptions: {
+          secure: process.env.NODE_ENV === "production" || window.location.protocol === "https:",
+          sameSite: "Lax",
+          path: "/",
+        },
+        // Only enable debug mode in development
+        debug: isDevelopment,
       },
     )
 
     supabaseClient = client
-    clientInitialization = null
+    clientInitializing = null
     resolve(client)
   })
 
-  return clientInitialization
+  return clientInitializing
 }
 
 /**
  * Reset the Supabase client
  * Useful when signing out to ensure a fresh client on next login
  */
-export function resetSupabaseClient(): void {
-  console.log("[Supabase Client] Resetting Supabase client")
-  supabaseClient = null
-  clientInitialization = null
-}
-
-/**
- * IMPORTANT: This is for backward compatibility only
- * All new code should use getSupabaseClient() instead
- */
-export async function createClient(): Promise<SupabaseClient> {
-  console.log("[Supabase Client] createClient() called - using singleton")
-  return getSupabaseClient()
-}
-
-/**
- * IMPORTANT: This is for backward compatibility only
- * All new code should use getSupabaseClient() instead
- */
-export function getClient(): SupabaseClient | null {
-  if (!supabaseClient) {
-    console.log("[Supabase Client] getClient() called but no client exists - initializing")
-    // Trigger async initialization but don't wait for it
-    getSupabaseClient().catch((err) => {
-      console.error("[Supabase Client] Error initializing client:", err)
-    })
-  }
-  return supabaseClient
-}
-
 export function clearSupabaseClient(): void {
-  console.log("[Supabase Client] Clearing instance")
+  if (process.env.NODE_ENV === "development") {
+    console.log("[Supabase Client] Clearing client")
+  }
 
   // Clear the instance
   supabaseClient = null
-  clientInitialization = null
+  clientInitializing = null
 
   // Clear all auth cookies and storage
   try {
@@ -130,6 +105,12 @@ export function clearSupabaseClient(): void {
   } catch (error) {
     console.error("[Supabase Client] Error clearing storage:", error)
   }
+}
 
-  console.log("[Supabase Client] Instance cleared")
+/**
+ * IMPORTANT: This is for backward compatibility only
+ * All new code should use getSupabaseClient() instead
+ */
+export async function createClient(): Promise<SupabaseClient> {
+  return getSupabaseClient()
 }

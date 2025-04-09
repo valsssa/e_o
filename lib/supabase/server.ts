@@ -6,36 +6,55 @@ import type { SupabaseClient } from "@supabase/supabase-js"
  * Create a Supabase client for server components and API routes
  */
 export function createServerSupabaseClient(): SupabaseClient {
-  console.log("[Server Supabase] Creating server client")
+  const isDevelopment = process.env.NODE_ENV === "development"
+  if (isDevelopment) {
+    console.log("[Server Supabase] Creating server client")
+  }
+  
+  // Get the cookie store synchronously
+  // Note: cookies() itself is not async, but using its methods can trigger warnings
+  // if not handled properly in server components
   const cookieStore = cookies()
 
-  return createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
-    cookies: {
-      get(name: string) {
-        console.log(`[Server Supabase] Getting cookie: ${name}`)
-        const cookie = cookieStore.get(name)
-        console.log(`[Server Supabase] Cookie ${name}: ${cookie ? "found" : "not found"}`)
-        return cookie?.value
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          try {
+            // Access the cookie value directly
+            const value = cookieStore.get(name)?.value
+            return value
+          } catch (error) {
+            // Log error in development only
+            if (isDevelopment) {
+              console.error(`[Server Supabase] Error getting cookie: ${name}`, error)
+            }
+            return undefined
+          }
+        },
+        set(name: string, value: string, options: any) {
+          try {
+            cookieStore.set({ name, value, ...options })
+          } catch (error) {
+            if (isDevelopment) {
+              console.error(`[Server Supabase] Error setting cookie: ${name}`, error)
+            }
+          }
+        },
+        remove(name: string, options: any) {
+          try {
+            cookieStore.set({ name, value: "", ...options, maxAge: 0 })
+          } catch (error) {
+            if (isDevelopment) {
+              console.error(`[Server Supabase] Error removing cookie: ${name}`, error)
+            }
+          }
+        },
       },
-      set(name: string, value: string, options: any) {
-        console.log(`[Server Supabase] Setting cookie: ${name}`)
-        cookieStore.set({ name, value, ...options })
-      },
-      remove(name: string, options: any) {
-        console.log(`[Server Supabase] Removing cookie: ${name}`)
-        cookieStore.set({ name, value: "", ...options, maxAge: 0 })
-      },
-    },
-  })
-}
-
-/**
- * IMPORTANT: This is for backward compatibility only
- * All new code should use createServerSupabaseClient() instead
- */
-export function createClient(): SupabaseClient {
-  console.log("[Server Supabase] createClient() called - creating server client")
-  return createServerSupabaseClient()
+    }
+  )
 }
 
 /**
@@ -51,7 +70,6 @@ export async function isAuthenticatedServer(): Promise<boolean> {
       return false
     }
 
-    console.log("[Server Supabase] Authentication check:", !!data.session)
     return !!data.session
   } catch (error) {
     console.error("[Server Supabase] Unexpected error checking authentication:", error)
