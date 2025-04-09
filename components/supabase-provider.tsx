@@ -1,10 +1,10 @@
+// components/supabase-provider.tsx
 "use client"
 
 import type React from "react"
 import { createContext, useContext, useEffect, useState } from "react"
-import { getSupabaseClient } from "@/lib/supabase/singleton"
+import * as AuthService from "@/lib/auth-service" // Use the new auth service
 import type { SupabaseClient } from "@supabase/supabase-js"
-import { logAuthEvent } from "@/lib/debug-utils"
 
 type SupabaseContext = {
   supabase: SupabaseClient | null
@@ -22,16 +22,25 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
 
     const initializeSupabase = async () => {
       try {
-        logAuthEvent("SupabaseProvider: Initializing Supabase client", {})
-        const client = await getSupabaseClient()
+        if (process.env.NODE_ENV === "development") {
+          console.log("SupabaseProvider: Initializing Supabase client")
+        }
+        
+        // Use the auth service to get the client
+        const client = AuthService.createClient()
 
         if (isMounted) {
           setSupabase(client)
           setIsLoading(false)
-          logAuthEvent("SupabaseProvider: Supabase client initialized", {})
+          if (process.env.NODE_ENV === "development") {
+            console.log("SupabaseProvider: Supabase client initialized")
+          }
         }
       } catch (error) {
-        logAuthEvent("SupabaseProvider: Error initializing Supabase client", { error })
+        if (process.env.NODE_ENV === "development") {
+          console.error("SupabaseProvider: Error initializing Supabase client", error)
+        }
+        
         if (isMounted) {
           setIsLoading(false)
         }
