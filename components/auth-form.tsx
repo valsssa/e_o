@@ -4,76 +4,53 @@ import type React from "react"
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { useSupabase } from "@/components/supabase-provider"
+import { createClient } from "@/utils/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
-import { Eye, EyeOff, Loader2 } from "lucide-react"
+import { Loader2 } from "lucide-react"
 
-export function AuthForm() {
+export default function AuthForm() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const { supabase } = useSupabase()
+  const [isSignUp, setIsSignUp] = useState(false)
   const router = useRouter()
   const { toast } = useToast()
+  const supabase = createClient()
 
-  const handleSignIn = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
+      if (isSignUp) {
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+        })
 
-      if (error) throw error
+        if (error) throw error
 
-      toast({
-        title: "Welcome back",
-        description: "You have successfully signed in",
-      })
+        toast({
+          title: "Check your email",
+          description: "We've sent you a confirmation link to complete your sign up.",
+        })
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        })
 
-      router.push("/")
-      router.refresh()
+        if (error) throw error
+        router.refresh()
+      }
     } catch (error: any) {
       toast({
-        title: "Error signing in",
-        description: error.message || "Please try again",
-        variant: "destructive",
-      })
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const handleSignUp = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsLoading(true)
-
-    try {
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-        },
-      })
-
-      if (error) throw error
-
-      toast({
-        title: "Check your email",
-        description: "We've sent you a confirmation link",
-      })
-    } catch (error: any) {
-      toast({
-        title: "Error signing up",
-        description: error.message || "Please try again",
+        title: "Authentication error",
+        description: error.message || "An error occurred during authentication",
         variant: "destructive",
       })
     } finally {
@@ -82,109 +59,67 @@ export function AuthForm() {
   }
 
   return (
-    <Card className="w-full max-w-md mx-auto bg-black/40 backdrop-blur-md border-purple-900/50 glow">
-      <Tabs defaultValue="signin">
-        <CardHeader>
-          <CardTitle className="text-center text-2xl font-bold">Esoteric Oracle</CardTitle>
-          <CardDescription className="text-center">Access the wisdom of the cosmos</CardDescription>
-          <TabsList className="grid grid-cols-2 mt-4">
-            <TabsTrigger value="signin">Sign In</TabsTrigger>
-            <TabsTrigger value="signup">Sign Up</TabsTrigger>
-          </TabsList>
-        </CardHeader>
+    <form onSubmit={handleSubmit} className="space-y-6">
+      <div className="space-y-2">
+        <Label htmlFor="email" className="text-white/80">
+          Email
+        </Label>
+        <Input
+          id="email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="your@email.com"
+          required
+          className="bg-black/30 border-purple-500/30 focus:border-purple-500/50 text-white placeholder:text-white/40"
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="password" className="text-white/80">
+          Password
+        </Label>
+        <Input
+          id="password"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="••••••••"
+          required
+          className="bg-black/30 border-purple-500/30 focus:border-purple-500/50 text-white placeholder:text-white/40"
+        />
+      </div>
+      <Button
+        type="submit"
+        className={`
+          w-full relative overflow-hidden group
+          bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500
+          text-white font-medium py-2 px-4 rounded-lg
+          shadow-md hover:shadow-lg hover:shadow-purple-500/20
+          transition-all duration-300 ease-out
+        `}
+        disabled={isLoading}
+      >
+        {/* Background shine effect */}
+        <span className="absolute top-0 left-0 w-full h-full bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-[150%] transition-transform duration-1000 ease-out" />
 
-        <TabsContent value="signin">
-          <form onSubmit={handleSignIn}>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Input
-                  type="email"
-                  placeholder="Email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="bg-black/30"
-                />
-              </div>
-              <div className="space-y-2 relative">
-                <Input
-                  type={showPassword ? "text" : "password"}
-                  placeholder="Password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className="bg-black/30 pr-10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-            </CardContent>
-            <CardFooter>
-              <Button type="submit" className="w-full bg-purple-700 hover:bg-purple-600" disabled={isLoading}>
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Signing In...
-                  </>
-                ) : (
-                  "Sign In"
-                )}
-              </Button>
-            </CardFooter>
-          </form>
-        </TabsContent>
-
-        <TabsContent value="signup">
-          <form onSubmit={handleSignUp}>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Input
-                  type="email"
-                  placeholder="Email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="bg-black/30"
-                />
-              </div>
-              <div className="space-y-2 relative">
-                <Input
-                  type={showPassword ? "text" : "password"}
-                  placeholder="Password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className="bg-black/30 pr-10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-            </CardContent>
-            <CardFooter>
-              <Button type="submit" className="w-full bg-purple-700 hover:bg-purple-600" disabled={isLoading}>
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Creating Account...
-                  </>
-                ) : (
-                  "Sign Up"
-                )}
-              </Button>
-            </CardFooter>
-          </form>
-        </TabsContent>
-      </Tabs>
-    </Card>
+        {isLoading ? (
+          <span className="flex items-center justify-center">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Loading...
+          </span>
+        ) : (
+          <span>{isSignUp ? "Sign Up" : "Sign In"}</span>
+        )}
+      </Button>
+      <div className="text-center">
+        <button
+          type="button"
+          onClick={() => setIsSignUp(!isSignUp)}
+          className="text-sm text-purple-300 hover:text-purple-200 transition-colors"
+        >
+          {isSignUp ? "Already have an account? Sign In" : "Don't have an account? Sign Up"}
+        </button>
+      </div>
+    </form>
   )
 }

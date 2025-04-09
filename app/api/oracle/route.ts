@@ -1,155 +1,141 @@
-import { createClient } from "@/lib/supabase/server"
-import { NextResponse } from "next/server"
-import { llmClient } from "@/lib/llm/client"
-import { getOraclePrompt, generateFallbackResponse } from "@/lib/llm/oracle-context"
-import { createLogger } from "@/lib/llm/logger"
-import { generateRequestId } from "@/lib/llm/request-id"
-import { validateLLMConfig, logLLMConfig } from "@/lib/llm/config-validator"
+import { createClient } from "@/utils/supabase/server"
 
-// Create a logger for this API route
-const logger = createLogger("OracleAPI")
+export const runtime = "edge"
 
-// Validate LLM configuration on module load
-const configValidation = validateLLMConfig()
-logLLMConfig()
+function determineCategory(question: string): string {
+  const tarotKeywords = ["cards", "tarot", "spread", "arcana", "deck"]
+  const astrologyKeywords = [
+    "horoscope",
+    "stars",
+    "planets",
+    "astrology",
+    "zodiac",
+    "sign",
+    "mercury",
+    "venus",
+    "mars",
+    "jupiter",
+    "saturn",
+  ]
+  const runesKeywords = ["runes", "ancient", "symbols", "nordic", "magic", "elder futhark", "viking"]
 
-// This is a streaming API endpoint
-export async function POST(request: Request) {
-  const requestId = generateRequestId()
-  const routeLogger = logger.child(requestId)
+  const lowerCaseQuestion = question.toLowerCase()
+  if (tarotKeywords.some((keyword) => lowerCaseQuestion.includes(keyword))) return "tarot"
+  if (astrologyKeywords.some((keyword) => lowerCaseQuestion.includes(keyword))) return "astrology"
+  if (runesKeywords.some((keyword) => lowerCaseQuestion.includes(keyword))) return "runes"
+  return "general"
+}
 
-  routeLogger.info("Oracle API request received")
-
-  // Log configuration status
-  if (!configValidation.isValid) {
-    routeLogger.warn("LLM configuration is incomplete", { missingVars: configValidation.missingVars })
-  }
-
+export async function POST(req: Request) {
   const supabase = createClient()
 
   // Check authentication
   const {
     data: { session },
-    error: sessionError,
   } = await supabase.auth.getSession()
-
-  if (sessionError) {
-    routeLogger.error("Session error", sessionError)
-    return NextResponse.json({ error: "Authentication error" }, { status: 401 })
-  }
-
   if (!session) {
-    routeLogger.warn("No session found, authentication required")
-    return NextResponse.json({ error: "Authentication required" }, { status: 401 })
+    return new Response("Unauthorized", { status: 401 })
   }
 
   try {
-    let requestBody
-    try {
-      requestBody = await request.json()
-    } catch (error) {
-      routeLogger.error("Error parsing request body", error)
-      return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
+    const { question } = await req.json()
+
+    if (!question || typeof question !== "string") {
+      return new Response("Question is required", { status: 400 })
     }
 
-    const { question } = requestBody
+    const category = determineCategory(question)
 
-    if (!question) {
-      routeLogger.warn("No question provided in request")
-      return NextResponse.json({ error: "Question is required" }, { status: 400 })
+    const categoryContext: Record<string, string> = {
+      general: `
+        You are an esoteric oracle providing mystical and profound answers. 
+        Your responses should be enigmatic, symbolic, and hint at deeper truths. 
+        Inspire reflection, and keep your responses concise, answering in 2-4 sentences.
+      `,
+      tarot: `
+        You are a mystical oracle who answers questions by interpreting the symbols of Tarot. 
+        Each response must incorporate references to Tarot cards, their archetypes, and symbolic meanings. 
+        Your answers should feel like a Tarot reading, drawing on the energy of the Major and Minor Arcana. 
+        Be concise and clear, responding in 2-4 sentences.
+      `,
+      astrology: `
+        You are a modern celestial oracle specializing in astrological advice. 
+        Your responses should be practical, conversational, and relatable, while staying true to the zodiac sign's traits. 
+        Avoid poetic or symbolic phrasing; instead, focus on giving actionable advice and insights with a down-to-earth tone. 
+        Be concise and limit your answers to 2-4 sentences.
+      `,
+      runes: `
+        You are a mystical seer interpreting ancient runes to provide answers. 
+        Your responses must incorporate rune names, their meanings, and symbolic energies. 
+        Each answer should reflect ancient wisdom and mystery, guiding the seeker to profound truths. 
+        Keep your answers concise, answering in 2-4 sentences.
+      `,
     }
 
-    routeLogger.info("Processing question", { questionLength: question.length })
+    const oracleContext = categoryContext[category] || categoryContext.general
 
-    // Create a streaming response
-    const stream = new ReadableStream({
-      async start(controller) {
-        try {
-          // Check if the user has remaining questions
-          // This would be implemented with the user_question_limits table
+    const apiConfig = {
+      model: "llama3.2:latest",
+      apiBase: "https://gpt.lazarev.cloud/ollama/v1",
+      apiKey: "sk-ab48499dd8f3416a8ee0f7d51ca039cf",
+    }
 
-          // Get the appropriate system prompt based on the question
-          const systemPrompt = getOraclePrompt(question)
+    const response = await fetch(`${apiConfig.apiBase}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiConfig.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: apiConfig.model,
+        messages: [
+          { role: "system", content: oracleContext },
+          { role: "user", content: question },
+        ],
+        stream: true,
+      }),
+    })
 
-          // Prepare messages for the LLM
-          const messages = [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: question },
-          ]
+    if (!response.ok) {
+      const errorText = await response.text()
+      return new Response(`API Error: ${errorText}`, { status: response.status })
+    }
 
-          routeLogger.debug("Prepared messages for LLM", {
-            messageCount: messages.length,
-            systemPromptLength: systemPrompt.length,
-          })
+    // Create a TransformStream to process the response
+    const encoder = new TextEncoder()
+    const decoder = new TextDecoder()
 
-          // Try to generate a completion from the LLM
-          try {
-            // No need to update config here as it's already using environment variables
-            await llmClient.generateCompletion(
-              messages,
-              (chunk, done) => {
-                if (!done && chunk) {
-                  controller.enqueue(new TextEncoder().encode(chunk))
-                }
+    const transformStream = new TransformStream({
+      async transform(chunk, controller) {
+        const text = decoder.decode(chunk)
+        const lines = text.split("\n").filter((line) => line.trim() !== "")
 
-                if (done) {
-                  controller.close()
-                }
-              },
-              {
-                options: {
-                  temperature: 0.7,
-                  top_p: 0.9,
-                  max_tokens: 500,
-                  timeout: 30000,
-                  retries: 1,
-                },
-              },
-            )
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6)
+            if (data === "[DONE]") continue
 
-            routeLogger.info("LLM completion generated successfully")
-          } catch (error) {
-            // Handle LLM errors
-            routeLogger.error("Error generating LLM completion", error)
-
-            // Generate a fallback response
-            const fallbackResponse = generateFallbackResponse(question)
-            routeLogger.info("Using fallback response", { responseLength: fallbackResponse.length })
-
-            // Simulate streaming for a better UX
-            const words = fallbackResponse.split(" ")
-            for (let i = 0; i < words.length; i += 3) {
-              const chunk = words.slice(i, i + 3).join(" ") + " "
-              controller.enqueue(new TextEncoder().encode(chunk))
-              await new Promise((resolve) => setTimeout(resolve, 100))
+            try {
+              const json = JSON.parse(data)
+              const content = json.choices[0]?.delta?.content || ""
+              if (content) {
+                controller.enqueue(encoder.encode(content))
+              }
+            } catch (e) {
+              console.error("Error parsing JSON:", e)
             }
-
-            controller.close()
           }
-        } catch (error) {
-          routeLogger.error("Unexpected error in stream controller", error)
-
-          // Send a fallback response instead of failing
-          const fallbackResponse =
-            "The cosmic forces are in flux. The oracle cannot provide a clear answer at this time."
-          controller.enqueue(new TextEncoder().encode(fallbackResponse))
-          controller.close()
         }
       },
     })
 
-    routeLogger.debug("Returning streaming response")
-
-    return new Response(stream, {
+    return new Response(response.body?.pipeThrough(transformStream), {
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
-        "Transfer-Encoding": "chunked",
-        "Cache-Control": "no-cache, no-transform",
-        "X-Request-ID": requestId,
       },
     })
-  } catch (error) {
-    routeLogger.error("Oracle API error", error)
-    return NextResponse.json({ error: "Failed to process your question" }, { status: 500 })
+  } catch (error: any) {
+    console.error("Error handling request:", error)
+    return new Response(`Error: ${error.message}`, { status: 500 })
   }
 }

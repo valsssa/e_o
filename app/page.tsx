@@ -1,73 +1,31 @@
-import { createServerSupabaseClient, isAuthenticatedServer } from "@/lib/supabase/server"
-import { StarsBackground } from "@/components/stars-background"
-import { NavBar } from "@/components/nav-bar"
-import { OracleInterface } from "@/components/oracle-interface"
-import AuthForm from "@/components/auth/auth-form"
-import { cookies } from "next/headers"
+import { redirect } from "next/navigation"
+import { createClient } from "@/utils/supabase/server"
+import OracleConsultation from "@/components/oracle-consultation"
 
 export default async function Home() {
-  // ✅ Правильное использование cookies() с await
-  const cookieStore = await cookies()
-
-  const hasAuthCookie =
-    cookieStore.has("sb-access-token") || cookieStore.has("sb-refresh-token")
-
-  // ✅ Получение Supabase сессии
-  const supabase = createServerSupabaseClient()
+  const supabase = createClient()
   const {
     data: { session },
   } = await supabase.auth.getSession()
 
-  // ✅ Дополнительная проверка на сервере
-  const isAuthenticated = await isAuthenticatedServer()
-
-  // ✅ Логируем всё, как раньше
-  console.log("[Home Page] Auth state:", {
-    hasSession: !!session,
-    hasAuthCookie,
-    isAuthenticated,
-    userId: session?.user?.id,
-  })
-
-  // ✅ Если авторизован — отрисовать Oracle
-  if (session || isAuthenticated) {
-    return (
-      <main className="min-h-screen cosmic-gradient relative">
-        <StarsBackground />
-        <NavBar />
-        <div className="container mx-auto px-4 pt-24 pb-16">
-          <div className="text-center mb-12">
-            <h1 className="text-4xl font-bold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-600">
-              Esoteric Oracle
-            </h1>
-            <p className="text-xl text-gray-300 max-w-2xl mx-auto">
-              Seek wisdom from the cosmic forces. Ask your question and receive guidance from the mystical oracle.
-            </p>
-          </div>
-
-          <OracleInterface />
-        </div>
-      </main>
-    )
+  if (!session) {
+    redirect("/login")
   }
 
-  // ❌ Если не авторизован — форма входа
   return (
-    <main className="min-h-screen cosmic-gradient relative">
-      <StarsBackground />
-
-      <div className="flex items-center justify-center min-h-screen p-4">
-        <div className="w-full max-w-md">
-          <div className="text-center mb-8">
-            <h1 className="text-4xl font-bold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-600">
-              Esoteric Oracle
-            </h1>
-            <p className="text-xl text-gray-300">Unlock the wisdom of the cosmos</p>
-          </div>
-
-          <AuthForm />
-        </div>
+    <div className="flex flex-col items-center justify-center px-4 py-12 sm:py-24">
+      <div className="text-center mb-12 animate-fade-in">
+        <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-400 via-purple-400 to-indigo-400 mb-4">
+          Esoteric Oracle
+        </h1>
+        <p className="text-lg sm:text-xl text-white/80 max-w-2xl mx-auto">
+          Seek wisdom from the cosmic forces. Ask your question and receive guidance from the mystical oracle.
+        </p>
       </div>
-    </main>
+
+      <div className="w-full max-w-3xl">
+        <OracleConsultation user={session.user} />
+      </div>
+    </div>
   )
 }
