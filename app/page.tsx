@@ -6,32 +6,30 @@ import AuthForm from "@/components/auth/auth-form"
 import { cookies } from "next/headers"
 
 export default async function Home() {
-  // Check for authentication using a dedicated function
-  const isAuthenticated = await isAuthenticatedServer()
-  
-  // Create the Supabase client
+  // ✅ Правильное использование cookies() с await
+  const cookieStore = await cookies()
+
+  const hasAuthCookie =
+    cookieStore.has("sb-access-token") || cookieStore.has("sb-refresh-token")
+
+  // ✅ Получение Supabase сессии
   const supabase = createServerSupabaseClient()
-  
-  // Get the session data
   const {
     data: { session },
   } = await supabase.auth.getSession()
-  
-  // Check for authentication cookies directly - safely
-  const cookieStore = cookies()
-  const hasAuthCookie = cookieStore.has("sb-access-token") || cookieStore.has("sb-refresh-token")
-  
-  // For debugging in development only
-  if (process.env.NODE_ENV === "development") {
-    console.log("[Home Page] Auth state:", {
-      hasSession: !!session,
-      hasAuthCookie,
-      isAuthenticated,
-      userId: session?.user?.id,
-    })
-  }
 
-  // If user is authenticated, show the oracle interface
+  // ✅ Дополнительная проверка на сервере
+  const isAuthenticated = await isAuthenticatedServer()
+
+  // ✅ Логируем всё, как раньше
+  console.log("[Home Page] Auth state:", {
+    hasSession: !!session,
+    hasAuthCookie,
+    isAuthenticated,
+    userId: session?.user?.id,
+  })
+
+  // ✅ Если авторизован — отрисовать Oracle
   if (session || isAuthenticated) {
     return (
       <main className="min-h-screen cosmic-gradient relative">
@@ -53,7 +51,7 @@ export default async function Home() {
     )
   }
 
-  // If not authenticated, show the login form
+  // ❌ Если не авторизован — форма входа
   return (
     <main className="min-h-screen cosmic-gradient relative">
       <StarsBackground />

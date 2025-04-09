@@ -12,6 +12,10 @@ import { Loader2, Send, Star, StarOff } from "lucide-react"
 import { ResponseDisplay } from "@/components/response-display"
 import { FeedbackForm } from "@/components/feedback-form"
 import { saveOracleInteraction, updateOracleInteractionFavorite } from "@/lib/db-utils"
+import { createLogger } from "@/lib/llm/logger"
+
+// Create a logger for this component
+const logger = createLogger("OracleInterface")
 
 export function OracleInterface() {
   const [question, setQuestion] = useState("")
@@ -26,10 +30,19 @@ export function OracleInterface() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const responseRef = useRef<string>("")
   const interactionIdRef = useRef<string>("")
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const requestIdRef = useRef<string>("")
 
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.focus()
+    }
+
+    // Cleanup function to abort any in-progress requests
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
     }
   }, [])
 
@@ -52,30 +65,62 @@ export function OracleInterface() {
       return
     }
 
+    // Generate a unique request ID for logging
+    requestIdRef.current = `req_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`
+    const componentLogger = logger.child(requestIdRef.current)
+
+    componentLogger.info("Oracle consultation requested", { questionLength: question.length })
+
+    // Abort any previous request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+
+    // Create a new abort controller for this request
+    abortControllerRef.current = new AbortController()
+
     setIsLoading(true)
     setResponse("")
     responseRef.current = ""
     setIsTyping(false)
+    setShowFeedback(false)
+    setIsFavorite(false)
+    interactionIdRef.current = ""
+
+    const startTime = Date.now()
 
     try {
+      componentLogger.debug("Sending request to Oracle API")
+
       // Start the streaming response
       const response = await fetch("/api/oracle", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "X-Request-ID": requestIdRef.current,
         },
         body: JSON.stringify({ question }),
+        signal: abortControllerRef.current.signal,
       })
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.error || "Failed to connect to the oracle")
+        let errorMessage = "Failed to connect to the oracle"
+        try {
+          const errorData = await response.json()
+          if (errorData.error) {
+            errorMessage = errorData.error
+          }
+        } catch (e) {
+          componentLogger.warn("Failed to parse error response", e)
+        }
+        throw new Error(errorMessage)
       }
 
       const reader = response.body?.getReader()
       if (!reader) throw new Error("Stream not available")
 
       setIsTyping(true)
+      componentLogger.debug("Started reading response stream")
 
       // Read the stream
       while (true) {
@@ -87,32 +132,53 @@ export function OracleInterface() {
         responseRef.current += chunk
         setResponse(responseRef.current)
 
-        // Simulate typing delay for effect
-        await new Promise((resolve) => setTimeout(resolve, 30))
+        // Small delay for a more natural typing effect
+        await new Promise((resolve) => setTimeout(resolve, 10))
       }
+
+      componentLogger.info("Completed reading response stream", {
+        responseLength: responseRef.current.length,
+        duration: Date.now() - startTime,
+      })
 
       // Save the interaction to the database
       const { data, error } = await saveOracleInteraction(supabase, user.id, question, responseRef.current)
 
-      if (error) throw error
+      if (error) {
+        componentLogger.error("Error saving oracle interaction", error)
+        throw error
+      }
 
       if (data) {
         interactionIdRef.current = data.id
+        componentLogger.debug("Saved oracle interaction", { interactionId: data.id })
       }
 
       setShowFeedback(true)
     } catch (error: any) {
-      console.error("[Oracle Interface] Error consulting oracle:", error)
+      // Don't show an error if the request was aborted
+      if (error.name === "AbortError") {
+        componentLogger.info("Request aborted")
+        return
+      }
+
+      componentLogger.error("Error consulting oracle", error)
 
       toast({
         title: "Oracle connection failed",
         description: error.message || "Could not receive a response",
         variant: "destructive",
       })
-      setResponse("The cosmic connection was disrupted. Please try again later.")
+
+      if (!responseRef.current) {
+        setResponse("The cosmic connection was disrupted. Please try again later.")
+      }
     } finally {
       setIsLoading(false)
       setIsTyping(false)
+      abortControllerRef.current = null
+
+      componentLogger.debug("Oracle consultation completed")
     }
   }
 
@@ -130,6 +196,11 @@ export function OracleInterface() {
     setIsFavorite(newFavoriteStatus)
 
     try {
+      logger.debug("Toggling favorite status", {
+        interactionId: interactionIdRef.current,
+        newStatus: newFavoriteStatus,
+      })
+
       const { success, error } = await updateOracleInteractionFavorite(
         supabase,
         interactionIdRef.current,
@@ -145,7 +216,7 @@ export function OracleInterface() {
           : "This oracle response has been removed from your favorites",
       })
     } catch (error: any) {
-      console.error("[Oracle Interface] Error updating favorite status:", error)
+      logger.error("Error updating favorite status", error)
 
       toast({
         title: "Error updating favorites",

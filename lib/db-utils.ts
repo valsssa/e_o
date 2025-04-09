@@ -1,5 +1,4 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
-import { handleError } from "./error-utils"
 
 // Type for oracle interactions
 export interface OracleInteraction {
@@ -30,22 +29,14 @@ export async function saveOracleInteraction(
       .single()
 
     if (error) {
-      const { error: handledError } = handleError(
-        error, 
-        "DB Utils: saveOracleInteraction",
-        "Error saving oracle interaction"
-      )
-      return { data: null, error: handledError }
+      console.error("[DB Utils] Error saving oracle interaction:", error)
+      return { data: null, error }
     }
 
     return { data, error: null }
   } catch (error) {
-    const { error: handledError } = handleError(
-      error, 
-      "DB Utils: saveOracleInteraction",
-      "Unexpected error saving oracle interaction"
-    )
-    return { data: null, error: handledError }
+    console.error("[DB Utils] Unexpected error saving oracle interaction:", error)
+    return { data: null, error: error as Error }
   }
 }
 
@@ -62,22 +53,14 @@ export async function getUserOracleInteractions(
       .order("created_at", { ascending: false })
 
     if (error) {
-      const { error: handledError } = handleError(
-        error, 
-        "DB Utils: getUserOracleInteractions",
-        "Error fetching oracle interactions"
-      )
-      return { data: null, error: handledError }
+      console.error("[DB Utils] Error getting user oracle interactions:", error)
+      return { data: null, error }
     }
 
     return { data, error: null }
   } catch (error) {
-    const { error: handledError } = handleError(
-      error, 
-      "DB Utils: getUserOracleInteractions",
-      "Unexpected error fetching oracle interactions"
-    )
-    return { data: null, error: handledError }
+    console.error("[DB Utils] Unexpected error getting user oracle interactions:", error)
+    return { data: null, error: error as Error }
   }
 }
 
@@ -94,22 +77,14 @@ export async function updateOracleInteractionFavorite(
       .eq("id", interactionId)
 
     if (error) {
-      const { error: handledError } = handleError(
-        error, 
-        "DB Utils: updateOracleInteractionFavorite",
-        "Error updating favorite status"
-      )
-      return { success: false, error: handledError }
+      console.error("[DB Utils] Error updating oracle interaction favorite status:", error)
+      return { success: false, error }
     }
 
     return { success: true, error: null }
   } catch (error) {
-    const { error: handledError } = handleError(
-      error, 
-      "DB Utils: updateOracleInteractionFavorite",
-      "Unexpected error updating favorite status"
-    )
-    return { success: false, error: handledError }
+    console.error("[DB Utils] Unexpected error updating oracle interaction favorite status:", error)
+    return { success: false, error: error as Error }
   }
 }
 
@@ -119,27 +94,16 @@ export async function deleteOracleInteraction(
   interactionId: string,
 ): Promise<{ success: boolean; error: Error | null }> {
   try {
-    const { error } = await supabase
-      .from("oracle_interactions")
-      .delete()
-      .eq("id", interactionId)
+    const { error } = await supabase.from("oracle_interactions").delete().eq("id", interactionId)
 
     if (error) {
-      const { error: handledError } = handleError(
-        error, 
-        "DB Utils: deleteOracleInteraction",
-        "Error deleting oracle interaction"
-      )
-      return { success: false, error: handledError }
+      console.error("[DB Utils] Error deleting oracle interaction:", error)
+      return { success: false, error }
     }
 
     return { success: true, error: null }
   } catch (error) {
-    const { error: handledError } = handleError(
-      error, 
-      "DB Utils: deleteOracleInteraction",
-      "Unexpected error deleting oracle interaction"
-    )
-    return { success: false, error: handledError }
+    console.error("[DB Utils] Unexpected error deleting oracle interaction:", error)
+    return { success: false, error: error as Error }
   }
 }

@@ -39,15 +39,7 @@ export function formatDate(date: string | Date) {
 }
 
 export const generateOracleResponse = async (question: string) => {
-  // This would be replaced with your actual API call
-  // For now, we'll simulate a streaming response
-  const responses = [
-    "The cosmic energies align with your inquiry...",
-    "The ancient wisdom speaks through the veil of time...",
-    "The oracle contemplates your question with deep insight...",
-    "The mystical forces reveal patterns in the chaos...",
-    "The ethereal plane resonates with your seeking...",
-  ]
-
-  return responses[Math.floor(Math.random() * responses.length)]
+  // This function is no longer used as we're calling the API directly
+  // from the OracleInterface component
+  return "Consulting the cosmic forces..."
 }
